@@ -13,7 +13,10 @@
 /build_*
 /build-*
 /tests/venv
-
+*.stderr
+*.stdout
+*.stderr-e
+*.stdout\-e
 /docs/build
 /docs/publish
 /docs/edit

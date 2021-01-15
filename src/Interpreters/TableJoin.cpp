@@ -125,6 +125,14 @@ NamesWithAliases TableJoin::getNamesWithAliases(const NameSet & required_columns
     return out;
 }
 
+String TableJoin::getOriginalColumnName(const String & renamed_name) const
+{
+    String original_name;
+    if (original_names.count(renamed_name)){
+        original_name = original_names.find(renamed_name)->second;
+    }
+    return original_name;
+}
 ASTPtr TableJoin::leftKeysList() const
 {
     ASTPtr keys_list = std::make_shared<ASTExpressionList>();

@@ -567,13 +567,15 @@ void TreeRewriterResult::collectUsedColumns(const ASTPtr & query, bool is_select
             if (available_columns.count(name))
                 continue;
 
-            if (required.count(name))
+            if (required.count(name)||required.count(analyzed_join->getOriginalColumnName(name)))
             {
                 /// Optimisation: do not add columns needed only in JOIN ON section.
                 if (columns_context.nameInclusion(name) > analyzed_join->rightKeyInclusion(name))
                     analyzed_join->addJoinedColumn(joined_column);
-
-                required.erase(name);
+                if (required.count(name))
+                    required.erase(name);
+                else if (required.count(analyzed_join->getOriginalColumnName(name)))
+                    required.erase(analyzed_join->getOriginalColumnName(name));
             }
         }
     }

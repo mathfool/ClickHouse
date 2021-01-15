@@ -128,7 +128,7 @@ public:
     NameSet getQualifiedColumnsSet() const;
     NamesWithAliases getNamesWithAliases(const NameSet & required_columns) const;
     NamesWithAliases getRequiredColumns(const Block & sample, const Names & action_required_columns) const;
-
+    String getOriginalColumnName(const String & renamed_name) const;
     void deduplicateAndQualifyColumnNames(const NameSet & left_table_columns, const String & right_table_prefix);
     size_t rightKeyInclusion(const String & name) const;
     NameSet requiredRightKeys() const;
