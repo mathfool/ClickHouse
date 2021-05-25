@@ -152,7 +152,7 @@ static void signalHandler(int sig, siginfo_t * info, void * context)
     if (sig != SIGTSTP) /// This signal is used for debugging.
     {
         /// The time that is usually enough for separate thread to print info into log.
-        sleepForSeconds(10);
+        sleepForSeconds(20);  /// FIXME: use some feedback from threads that process stacktrace
         call_default_signal_handler(sig);
     }
 
@@ -230,10 +230,10 @@ public:
             }
             else
             {
-                siginfo_t info;
-                ucontext_t context;
+                siginfo_t info{};
+                ucontext_t context{};
                 StackTrace stack_trace(NoCapture{});
-                UInt32 thread_num;
+                UInt32 thread_num{};
                 std::string query_id;
                 DB::ThreadStatus * thread_ptr{};
 
@@ -311,7 +311,8 @@ private:
         if (stack_trace.getSize())
         {
             /// Write bare stack trace (addresses) just in case if we will fail to print symbolized stack trace.
-            /// NOTE This still require memory allocations and mutex lock inside logger. BTW we can also print it to stderr using write syscalls.
+            /// NOTE: This still require memory allocations and mutex lock inside logger.
+            ///       BTW we can also print it to stderr using write syscalls.
 
             std::stringstream bare_stacktrace;
             bare_stacktrace << "Stack trace:";
@@ -324,7 +325,7 @@ private:
         /// Write symbolized stack trace line by line for better grep-ability.
         stack_trace.toStringEveryLine([&](const std::string & s) { LOG_FATAL(log, s); });
 
-#if defined(__linux__)
+#if defined(OS_LINUX)
         /// Write information about binary checksum. It can be difficult to calculate, so do it only after printing stack trace.
         String calculated_binary_hash = getHashOfLoadedBinaryHex();
         if (daemon.stored_binary_hash.empty())
@@ -415,7 +416,9 @@ static void sanitizerDeathCallback()
     else
         log_message = "Terminate called without an active exception";
 
-    static const size_t buf_size = 1024;
+    /// POSIX.1 says that write(2)s of less than PIPE_BUF bytes must be atomic - man 7 pipe
+    /// And the buffer should not be too small because our exception messages can be large.
+    static constexpr size_t buf_size = PIPE_BUF;
 
     if (log_message.size() > buf_size - 16)
         log_message.resize(buf_size - 16);
@@ -465,7 +468,7 @@ void BaseDaemon::reloadConfiguration()
       *  instead of using files specified in config.xml.
       * (It's convenient to log in console when you start server without any command line parameters.)
       */
-    config_path = config().getString("config-file", "config.xml");
+    config_path = config().getString("config-file", getDefaultConfigFileName());
     DB::ConfigProcessor config_processor(config_path, false, true);
     config_processor.setConfigPath(Poco::Path(config_path).makeParent().toString());
     loaded_config = config_processor.loadConfig(/* allow_zk_includes = */ true);
@@ -511,6 +514,11 @@ void BaseDaemon::kill()
 std::string BaseDaemon::getDefaultCorePath() const
 {
     return "/opt/cores/";
+}
+
+std::string BaseDaemon::getDefaultConfigFileName() const
+{
+    return "config.xml";
 }
 
 void BaseDaemon::closeFDs()
@@ -561,6 +569,7 @@ void debugIncreaseOOMScore()
     {
         DB::WriteBufferFromFile buf("/proc/self/oom_score_adj");
         buf.write(new_score.c_str(), new_score.size());
+        buf.close();
     }
     catch (const Poco::Exception & e)
     {
@@ -783,7 +792,7 @@ void BaseDaemon::initializeTerminationAndSignalProcessing()
     /// Setup signal handlers.
     /// SIGTSTP is added for debugging purposes. To output a stack trace of any running thread at anytime.
 
-    addSignalHandler({SIGABRT, SIGSEGV, SIGILL, SIGBUS, SIGSYS, SIGFPE, SIGPIPE, SIGTSTP}, signalHandler, &handled_signals);
+    addSignalHandler({SIGABRT, SIGSEGV, SIGILL, SIGBUS, SIGSYS, SIGFPE, SIGPIPE, SIGTSTP, SIGTRAP}, signalHandler, &handled_signals);
     addSignalHandler({SIGHUP, SIGUSR1}, closeLogsSignalHandler, &handled_signals);
     addSignalHandler({SIGINT, SIGQUIT, SIGTERM}, terminateRequestedSignalHandler, &handled_signals);
 
@@ -986,7 +995,7 @@ void BaseDaemon::setupWatchdog()
         if (errno == ECHILD)
         {
             logger().information("Child process no longer exists.");
-            _exit(status);
+            _exit(WEXITSTATUS(status));
         }
 
         if (WIFEXITED(status))
@@ -1020,7 +1029,7 @@ void BaseDaemon::setupWatchdog()
 
         /// Automatic restart is not enabled but you can play with it.
 #if 1
-        _exit(status);
+        _exit(WEXITSTATUS(status));
 #else
         logger().information("Will restart.");
         if (argv0)
